@@ -11,3 +11,7 @@ It adds IMDB ratings to the title overlay, title cards. Take a look to the attac
 
 ## Limitation
 Currently the script only uses the title name to get the imdb rating, so in case of multiple imdb matches, it may link to the wrong title. 
+
+
+You should also check MetaStazz's skip intro script..
+https://raw.githubusercontent.com/StellarisStudio/Netflix-Expanded/master/netflix-skip-intro.user.js
