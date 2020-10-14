@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Netflix IMDB Ratings
-// @version      1.12
+// @version      1.13
 // @description  Show IMDB ratings on Netflix
 // @author       Ioannis Ioannou
 // @match        https://www.netflix.com/*
@@ -14,8 +14,6 @@
 // @grant        GM_removeValueChangeListener
 // @grant        GM_openInTab
 // @connect      imdb.com
-// @resource     customCSS  https://raw.githubusercontent.com/ioannisioannou16/netflix-imdb/master/netflix-imdb.css
-// @resource     imdbIcon   https://raw.githubusercontent.com/ioannisioannou16/netflix-imdb/master/imdb-icon.png
 // @updateURL    https://github.com/ioannisioannou16/netflix-imdb/raw/master/netflix-imdb.user.js
 // @downloadURL  https://github.com/ioannisioannou16/netflix-imdb/raw/master/netflix-imdb.user.js
 // ==/UserScript==
@@ -139,15 +137,15 @@
 
     var imdbIconURL = GM_getResourceURL("imdbIcon");
 
-    function getOutputFormatter() {
+    function getOutputFormatter(title = "") {
         var div = document.createElement("div");
         div.classList.add("imdb-rating");
         div.style.cursor = "default";
         div.addEventListener("click", function() {});
-        var img = document.createElement("img");
-        img.classList.add("imdb-image");
-        img.src = imdbIconURL;
-        div.appendChild(img);
+        var imdbLabel = document.createElement("span");
+        imdbLabel.innerHTML = title || "IMDB";
+        imdbLabel.style.cssText = "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+        div.appendChild(imdbLabel);
         div.appendChild(document.createElement("div"));
         return function(res) {
             var restDiv = document.createElement("div");
@@ -165,22 +163,20 @@
             } else if (rating && rating.score && rating.votes && rating.url) {
                 var score = document.createElement("span");
                 score.classList.add("imdb-score");
-                score.appendChild(document.createTextNode(rating.score + "/10"));
+                score.appendChild(document.createTextNode("IMDB: " + rating.score));
+                score.style.cssText = "white-space: nowrap;"
                 restDiv.appendChild(score);
-                var votes = document.createElement("span");
-                votes.classList.add("imdb-votes");
-                votes.appendChild(document.createTextNode("(" + rating.votes + " votes)"));
-                restDiv.appendChild(votes);
                 div.addEventListener('click', function() {
                     GM_openInTab(rating.url, { active: true, insert: true, setParent: true });
                 });
-                div.style.cursor = "pointer";
+
             } else {
                 var noRating = document.createElement("span");
                 noRating.classList.add("imdb-no-rating");
                 noRating.appendChild(document.createTextNode("N/A"));
                 restDiv.appendChild(noRating);
             }
+            div.style.cssText = "cursor: pointer; background-color:#000000dd ;color:#ccc ; border-radius: 3px;font-size: 1rem; margin: 0px 0px -4px; display: flex; padding: 2px 10px 5px; gap: 10px; z-index: 100; justify-content: space-between;"
             div.replaceChild(restDiv, div.querySelector("div"));
             return div;
         }
@@ -188,7 +184,7 @@
 
     function getRatingNode(title) {
         var node = document.createElement("div");
-        var outputFormatter = getOutputFormatter();
+        var outputFormatter = getOutputFormatter(title);
         node.appendChild(outputFormatter({ loading: true }));
         getRating(title, function(err, rating) {
             if (err) return node.appendChild(outputFormatter({ error: true }));
@@ -214,7 +210,7 @@
         if (!title) return;
         var ratingNode = getRatingNode(title);
         ratingNode.classList.add("imdb-overlay");
-        node.appendChild(ratingNode);
+        node.prependChild(ratingNode);
     }
 
     function imdbRenderingForTrailer(node) {
@@ -223,6 +219,7 @@
         if (!title) return;
         var ratingNode = getRatingNode(title);
         titleNode.parentNode.insertBefore(ratingNode, titleNode.nextSibling);
+        Array.prototype.forEach.call(document.getElementsByClassName("title-card-container"), function(node) { cacheTitleRanking(node); });
     }
 
     function imdbRenderingForOverview(node) {
@@ -249,10 +246,14 @@
     }
 
     function cacheTitleRanking(node) {
+
         var titleNode = node.querySelector(".fallback-text");
         var title = titleNode && titleNode.textContent;
         if (!title) return;
-        getRating(title, function() {});
+        var ratingNode = getRatingNode(title);
+        ratingNode.classList.add("imdb-overlay");
+        node.prepend(ratingNode);
+
     }
 
     var observerCallback = function(mutationsList) {
