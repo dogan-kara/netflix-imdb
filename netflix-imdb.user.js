@@ -1,303 +1,90 @@
 // ==UserScript==
 // @name         Netflix IMDB Ratings
-// @version      1.13
+// @version      1.14
 // @description  Show IMDB ratings on Netflix
-// @author       Ioannis Ioannou
+// @author       DK
 // @match        https://www.netflix.com/*
 // @grant        GM_xmlhttpRequest
-// @grant        GM_addStyle
-// @grant        GM_getResourceText
-// @grant        GM_getResourceURL
-// @grant        GM_setValue
-// @grant        GM_getValue
-// @grant        GM_addValueChangeListener
-// @grant        GM_removeValueChangeListener
-// @grant        GM_openInTab
 // @connect      imdb.com
-// @updateURL    https://github.com/ioannisioannou16/netflix-imdb/raw/master/netflix-imdb.user.js
-// @downloadURL  https://github.com/ioannisioannou16/netflix-imdb/raw/master/netflix-imdb.user.js
 // ==/UserScript==
 
-(function() {
+(function () {
     "use strict";
-
-    GM_addStyle(GM_getResourceText("customCSS"));
 
     var domParser = new DOMParser();
 
-    function GM_xmlhttpRequest_get(url, cb) {
-        GM_xmlhttpRequest({
-            method: "GET",
-            url: url,
-            onload: function(x) { cb(null, x); },
-            onerror: function() { cb("Request to " + url + " failed"); }
+    const request = (url) => {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: "GET",
+                url: url,
+                onload: e => resolve(e),
+                onerror: reject,
+                ontimeout: reject,
+            });
         });
     }
 
-    function requestRating(title, cb) {
-        var searchUrl = "https://www.imdb.com/find?s=tt&q=" + title;
-        GM_xmlhttpRequest_get(searchUrl, function(err, searchRes) {
-            if (err) return cb(err);
+    async function getRatingNode(title) {
+        // console.log("requestRating", title);
+        try {
+            const searchRes = await request("https://www.imdb.com/find?s=tt&q=" + title);
             var searchResParsed = domParser.parseFromString(searchRes.responseText, "text/html");
-            var link = searchResParsed.querySelector(".result_text > a");
-            var titleEndpoint = link && link.getAttribute("href");
-            if (!titleEndpoint) return cb(null, {});
-            var titleUrl = "https://www.imdb.com" + titleEndpoint;
-            GM_xmlhttpRequest_get(titleUrl, function(err, titleRes) {
-                if (err) return cb(err);
-                var titleResParsed = domParser.parseFromString(titleRes.responseText, "text/html");
-                var imdbRating = titleResParsed.querySelector(".imdbRating");
-                var score = imdbRating && imdbRating.querySelector("span");
-                var votes = imdbRating && imdbRating.querySelector("a span");
-                if (!score || (!score.textContent) || !votes || (!votes.textContent)) return cb(null, {});
-                cb(null, { score: score.textContent, votes: votes.textContent, url: titleUrl });
-            });
-        });
-    }
+            var titleEndpoint = searchResParsed.querySelector(".result_text > a").getAttribute("href");
+            const titleRes = await request("https://www.imdb.com" + titleEndpoint);
+            var titleResParsed = domParser.parseFromString(titleRes.responseText, "text/html");
+            var imdbRating = titleResParsed.querySelector("div[data-testid] div.ipc-button__text");
+            var rating = imdbRating && imdbRating.getElementsByTagName("span")[0].innerText;
 
-    var cache = (function() {
-
-        var cacheKey = "netflix-cache";
-
-        var oneDayMs = 86400000;
-
-        function getRandom(start, end) {
-            return Math.ceil(Math.random() * (end - start) + start);
+            var ratingNode = document.createElement("div");
+            ratingNode.classList.add("imdb-overlay")
+            var imdbLabel = document.createElement("span");
+            imdbLabel.classList.add("imdbTitle")
+            imdbLabel.innerHTML = title || "IMDB";
+            ratingNode.appendChild(imdbLabel);
+            var score = document.createElement("span");
+            score.classList.add("imdbScore");
+            if (parseFloat(rating) > 7) { score.classList.add("red") };
+            score.innerHTML = rating;
+            ratingNode.appendChild(score);
+            return ratingNode
+        } catch (error) {
+            console.log("error for", title, { error });
         }
-
-        function mergeWithOtherCache(otherCache) {
-            Object.keys(otherCache).forEach(function(otherKey) {
-                var thisValue = _cache[otherKey];
-                var otherValue = otherCache[otherKey];
-                if (!thisValue || otherValue.expiration > thisValue.expiration) {
-                    _cache[otherKey] = otherValue;
-                }
-            });
-        }
-
-        var listener = GM_addValueChangeListener(cacheKey, function(name, oldV, newV, remote) {
-            if (remote) {
-                mergeWithOtherCache(JSON.parse(newV));
-            }
-        });
-
-        var _cache = JSON.parse(GM_getValue(cacheKey) || "{}");
-
-        function isValid(res) {
-            return res && (res.expiration - (new Date()).getTime() > 0);
-        }
-
-        function get(key) {
-            var res = _cache[key];
-            if (isValid(res)) return res.value;
-        }
-
-        function set(key, value) {
-            var valueObj = { value: value, expiration: (new Date()).getTime() + getRandom(oneDayMs, 7 * oneDayMs) };
-            _cache[key] = valueObj;
-        }
-
-        function removeInvalidEntries() {
-            Object.keys(_cache).forEach(function(key) {
-                if(!isValid(_cache[key])) {
-                    delete _cache[key];
-                }
-            });
-        }
-
-        window.addEventListener("blur", function() {
-            removeInvalidEntries();
-            GM_setValue(cacheKey, JSON.stringify(_cache));
-        });
-
-        window.addEventListener("beforeunload", function () {
-            removeInvalidEntries();
-            GM_setValue(cacheKey, JSON.stringify(_cache));
-            GM_removeValueChangeListener(listener);
-        });
-
-        return { get: get, set: set };
-    })();
-
-    function getRating(title, cb) {
-        var cacheRes = cache.get(title);
-        if (!cacheRes) {
-            requestRating(title, function(err, rating) {
-                if (err) {
-                    cb(err);
-                } else {
-                    cache.set(title, rating);
-                    cb(null, rating);
-                }
-            });
-        } else {
-            cb(null, cacheRes);
-        }
-    }
-
-    var imdbIconURL = GM_getResourceURL("imdbIcon");
-
-    function getOutputFormatter(title = "") {
-        var div = document.createElement("div");
-        div.classList.add("imdb-rating");
-        div.style.cursor = "default";
-        div.addEventListener("click", function() {});
-        var imdbLabel = document.createElement("span");
-        imdbLabel.innerHTML = title || "IMDB";
-        imdbLabel.style.cssText = "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
-        div.appendChild(imdbLabel);
-        div.appendChild(document.createElement("div"));
-        return function(res) {
-            var restDiv = document.createElement("div");
-            var rating = res.rating;
-            if (res.error) {
-                var error = document.createElement("span");
-                error.classList.add("imdb-error");
-                error.appendChild(document.createTextNode("ERROR"));
-                restDiv.appendChild(error);
-            } else if (res.loading) {
-                var loading = document.createElement("span");
-                loading.classList.add("imdb-loading");
-                loading.appendChild(document.createTextNode("fetching.."));
-                restDiv.appendChild(loading);
-            } else if (rating && rating.score && rating.votes && rating.url) {
-                var score = document.createElement("span");
-                score.classList.add("imdb-score");
-                score.appendChild(document.createTextNode("IMDB: " + rating.score));
-                score.style.cssText = "white-space: nowrap;"
-                restDiv.appendChild(score);
-                div.addEventListener('click', function() {
-                    GM_openInTab(rating.url, { active: true, insert: true, setParent: true });
-                });
-
-            } else {
-                var noRating = document.createElement("span");
-                noRating.classList.add("imdb-no-rating");
-                noRating.appendChild(document.createTextNode("N/A"));
-                restDiv.appendChild(noRating);
-            }
-            div.style.cssText = "cursor: pointer; background-color:#000000dd ;color:#ccc ; border-radius: 3px;font-size: 1rem; margin: 0px 0px -4px; display: flex; padding: 2px 10px 5px; gap: 10px; z-index: 100; justify-content: space-between;"
-            div.replaceChild(restDiv, div.querySelector("div"));
-            return div;
-        }
-    }
-
-    function getRatingNode(title) {
-        var node = document.createElement("div");
-        var outputFormatter = getOutputFormatter(title);
-        node.appendChild(outputFormatter({ loading: true }));
-        getRating(title, function(err, rating) {
-            if (err) return node.appendChild(outputFormatter({ error: true }));
-            node.appendChild(outputFormatter({ rating: rating }));
-        });
-        return node;
-    }
-
-    function findAncestor (el, cls) {
-        while(el && !el.classList.contains(cls)) {
-            el = el.parentNode;
-        }
-        return el;
     }
 
     var rootElement = document.getElementById("appMountPoint");
 
     if (!rootElement) return;
 
-    function imdbRenderingForCard(node) {
-        var titleNode = node.querySelector(".bob-title");
-        var title = titleNode && titleNode.textContent;
+    async function imdbRenderingForCard(node) {
+        var title = node.getElementsByTagName("a")[0]?.getAttribute("aria-label");
         if (!title) return;
-        var ratingNode = getRatingNode(title);
-        ratingNode.classList.add("imdb-overlay");
-        node.prependChild(ratingNode);
+        var ratingNode = await getRatingNode(title);
+        node.prepend(ratingNode);
     }
 
-    function imdbRenderingForTrailer(node) {
+    async function imdbRenderingForTrailer(node) {
         var titleNode = node.querySelector(".title-logo");
         var title = titleNode && titleNode.getAttribute("alt");
-        if (!title) return;
-        var ratingNode = getRatingNode(title);
+        var ratingNode = await getRatingNode(title);
         titleNode.parentNode.insertBefore(ratingNode, titleNode.nextSibling);
-        Array.prototype.forEach.call(document.getElementsByClassName("title-card-container"), function(node) { cacheTitleRanking(node); });
     }
 
-    function imdbRenderingForOverview(node) {
-        var text = node.querySelector(".image-fallback-text");
-        var logo = node.querySelector(".logo");
-        var titleFromText = text && text.textContent;
-        var titleFromImage = logo && logo.getAttribute("alt");
-        var title = titleFromText || titleFromImage;
-        if (!title) return;
-        var meta = node.querySelector(".meta");
-        if (!meta) return;
-        var ratingNode = getRatingNode(title);
-        meta.parentNode.insertBefore(ratingNode, meta.nextSibling);
-    }
 
-    function imdbRenderingForMoreLikeThis(node) {
-        var titleNode = node.querySelector(".video-artwork");
-        var title = titleNode && titleNode.getAttribute("alt");
-        if (!title) return;
-        var meta = node.querySelector(".meta");
-        if (!meta) return;
-        var ratingNode = getRatingNode(title);
-        meta.parentNode.insertBefore(ratingNode, meta.nextSibling);
-    }
+    var observerCallback = function (mutationsList) {
+        mutationsList.forEach(record => {
+            record.target.classList.contains("lolomo") && [...record.addedNodes].map(i => {
+                i.querySelector(".slider-item") && [...i.querySelectorAll(".slider-item")].map(item => {
+                    !item.querySelector(".imdb-overlay") && imdbRenderingForCard(item)
+                })
+            });
 
-    function cacheTitleRanking(node) {
+            [...record.addedNodes].map(i => {
+                i.classList.contains("slider-item") && imdbRenderingForCard(i)
+            })
 
-        var titleNode = node.querySelector(".fallback-text");
-        var title = titleNode && titleNode.textContent;
-        if (!title) return;
-        var ratingNode = getRatingNode(title);
-        ratingNode.classList.add("imdb-overlay");
-        node.prepend(ratingNode);
-
-    }
-
-    var observerCallback = function(mutationsList) {
-        for (var i = 0; i < mutationsList.length; i++) {
-            var newNodes = mutationsList[i].addedNodes;
-
-            for (var j = 0; j < newNodes.length; j++) {
-                var newNode = newNodes[j];
-                if (!(newNode instanceof HTMLElement)) continue;
-
-                if (newNode.classList.contains("bob-card")) {
-                    imdbRenderingForCard(newNode);
-                    continue;
-                }
-
-                var trailer = newNode.querySelector(".billboard-row");
-                if (trailer) {
-                    imdbRenderingForTrailer(trailer);
-                    continue;
-                }
-
-                var meta = newNode.classList.contains("meta") ? newNode : null;
-                meta = meta || newNode.querySelector(".meta");
-                if (meta) {
-                    var jawBonePane = findAncestor(meta, "jawBonePane");
-                    if (jawBonePane && !jawBonePane.classList.contains("js-transition-node")) {
-                        if (jawBonePane.id === "pane-Overview") {
-                            var jBone = findAncestor(jawBonePane, "jawBone");
-                            jBone && imdbRenderingForOverview(jBone);
-                        } else if (jawBonePane.id === "pane-MoreLikeThis") {
-                            var allSimsLockup = newNode.getElementsByClassName("simsLockup");
-                            allSimsLockup && Array.prototype.forEach.call(allSimsLockup, function(node) { imdbRenderingForMoreLikeThis(node); });
-                        }
-                    }
-                    continue;
-                }
-
-                var titleCards = newNode.getElementsByClassName("title-card-container");
-                if (titleCards) {
-                    Array.prototype.forEach.call(titleCards, function(node) { cacheTitleRanking(node); });
-                    continue;
-                }
-            }
-        }
+        });
     };
 
     var observer = new MutationObserver(observerCallback);
@@ -306,11 +93,44 @@
 
     observer.observe(document, observerConfig);
 
-    var existingOverview = document.querySelector(".jawBone");
-    existingOverview && imdbRenderingForOverview(existingOverview);
+    let styl = document.createElement("style")
+    let head = document.getElementsByTagName("head")[0];
+    styl.innerHTML = `
+    div.imdb-overlay {
+        background: linear-gradient(45deg, #000000cc 79%, #f5c518ff 80%);
+        color: #ccc;
+        border-radius: 3px;
+        font-size: 10px;
+        display: flex;
+        position: relative;
+        padding: 3px 10px;
+        margin-bottom: -18px;
+        justify-content: space-between;
+        z-index: 109;
+    }
+    span.imdbTitle {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        width: 80%;
+    }
+    span.imdbScore {
+        font-size: 12px;
+        line-height: 12px;
+        color: #222;
+        font-weight: 900;
+    }
+    .red {
+        color: #860000 !important;
+    }
+    `;
+    head.append(styl);
 
     var existingTrailer = document.querySelector(".billboard-row");
     existingTrailer && imdbRenderingForTrailer(existingTrailer);
+
+    var existingCards = document.getElementsByClassName("slider-item");
+    existingCards && [...existingCards].forEach(card => imdbRenderingForCard(card));
 
     window.addEventListener("beforeunload", function () {
         observer.disconnect();
