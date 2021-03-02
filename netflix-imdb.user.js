@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Netflix IMDB Ratings
-// @version      1.14
-// @description  Show IMDB ratings on Netflix
+// @name         Netflix - IMDB scores
+// @version      1.00
+// @description  Show
 // @author       DK
 // @match        https://www.netflix.com/*
 // @grant        GM_xmlhttpRequest
